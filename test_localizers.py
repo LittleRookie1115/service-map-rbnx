@@ -78,7 +78,34 @@ class RelocalizationHandoverTests(unittest.TestCase):
         for verb in ("hold", "resume"):
             ok, detail = getattr(ops, verb)(None, 1.0)
             self.assertTrue(ok)
-            self.assertIn("rtabmap", detail)
+        self.assertIn("rtabmap", detail)
+
+    def test_cold_start_idle_does_not_erase_localization_request(self):
+        from mapping_rbnx import engines
+
+        ops = engines.SlamToolboxOps()
+        with tempfile.TemporaryDirectory() as tmp:
+            ops.ENGINE_REQUEST = os.path.join(tmp, "request")
+            ops.ENGINE_ARGS = os.path.join(tmp, "args")
+            ops.ENGINE_PID = os.path.join(tmp, "pid")
+            sleeps = 0
+
+            def supervisor_initializes_idle(_delay):
+                nonlocal sleeps
+                sleeps += 1
+                if sleeps == 1:
+                    with open(ops.ENGINE_REQUEST, "w", encoding="utf-8") as f:
+                        f.write("idle")
+
+            with (mock.patch.object(ops, "_supervised_pid", return_value=None),
+                  mock.patch.object(engines.time, "sleep",
+                                    side_effect=supervisor_initializes_idle)):
+                ok, detail = ops._request_engine("localization", ["map:=saved"])
+
+            self.assertTrue(ok, detail)
+            with open(ops.ENGINE_REQUEST, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "localization")
+            self.assertEqual(sleeps, 2)
 
     def test_slam_toolbox_reports_a_missing_service_rather_than_pretending(self):
         # No ROS here, so the service type import fails — which must be an

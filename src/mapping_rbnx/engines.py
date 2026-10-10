@@ -649,9 +649,23 @@ class SlamToolboxOps:
         if pid is None:
             # Nothing to stop: the supervisor is idling because the engine was
             # stood down for a relocalization, and it picks the request up on
-            # its next turn round the loop. This is the normal path back from a
-            # load, not a failure.
+            # its next turn round the loop. On a localization cold start the
+            # supervisor may still be initializing; in that race it used to
+            # overwrite this request with its initial `idle`. Check after the
+            # startup grace period and restore only that initialization value.
             time.sleep(3.0)
+            try:
+                with open(self.ENGINE_REQUEST, encoding="utf-8") as f:
+                    observed = f.read().strip()
+                if observed == "idle" and mode != "idle":
+                    with open(self.ENGINE_REQUEST, "w", encoding="utf-8") as f:
+                        f.write(mode)
+                    time.sleep(2.0)
+                elif observed != mode:
+                    return False, (f"engine request changed from {mode} to "
+                                   f"{observed or '<empty>'}")
+            except OSError as e:
+                return False, f"could not verify the engine request: {e}"
             return True, f"engine supervisor asked for the {mode} node"
         if not _stop_process(pid):
             return False, "the running engine launch would not stop"
