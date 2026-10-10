@@ -1,0 +1,13 @@
+# robonix/service/map/get_pose_candidates — score the current 2D scan against
+# the active saved map. A clear automatic match needs no operator choice.
+# candidates_json is a UTF-8 JSON array of up to five objects with 1-based
+# rank, map-frame x/y in metres, theta in radians, and score in [0, 1].
+# It is [] when needs_selection is false. Check map_id and generation against
+# the current map lifecycle before using a returned pose with pose_estimate.
+---
+bool ok
+string detail
+string map_id
+int64 generation
+bool needs_selection
+string candidates_json

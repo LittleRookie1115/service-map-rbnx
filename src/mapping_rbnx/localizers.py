@@ -519,23 +519,24 @@ def _global_match_module():
     return global_match
 
 
-def relocalize_statically(node, grid, timeout_s: float = 8.0):
-    """Find the robot on `grid` from one scan, without moving it.
+def match_statically(node, grid, timeout_s: float = 8.0):
+    """Return the raw Top-K scan match, including ambiguous or low-score fits.
 
-    Returns (pose, detail) with pose None when the scan does not single a place
-    out. Standing still is the normal case on a robot that has just been
-    switched on or carried somewhere, and a particle filter cannot serve it:
-    its update is driven by motion, so with the robot still the cloud never
-    sharpens. Matching the scan against the map has no such requirement.
+    Both automatic relocalization and the public candidate query use this
+    scan/topic/laser-offset path, so their confidence decisions refer to the
+    same robot pose rather than to different sensor frames.
     """
+    if grid is None:
+        return None, "saved occupancy grid unavailable"
     try:
         matcher = _global_match_module()
     except Exception as e:  # noqa: BLE001
         return None, f"static matching unavailable: {e}"
     try:
         from sensor_msgs.msg import LaserScan
+        from rclpy.qos import qos_profile_sensor_data
     except Exception as e:  # noqa: BLE001
-        return None, f"sensor_msgs unavailable: {e}"
+        return None, f"LaserScan unavailable: {e}"
     import threading
 
     got = threading.Event()
@@ -546,7 +547,6 @@ def relocalize_statically(node, grid, timeout_s: float = 8.0):
         got.set()
 
     topic = _CONFIG.get("scan_topic") or "/scan"
-    from rclpy.qos import qos_profile_sensor_data
     sub = node.create_subscription(LaserScan, topic, _on_scan, qos_profile_sensor_data)
     try:
         got.wait(timeout_s)
@@ -555,14 +555,25 @@ def relocalize_statically(node, grid, timeout_s: float = 8.0):
             node.destroy_subscription(sub)
         except Exception:  # noqa: BLE001
             pass
-    if latest["msg"] is None:
+    msg = latest["msg"]
+    if msg is None:
         return None, f"no scan on {topic} within {timeout_s:.0f}s"
-
-    match = matcher.global_scan_match(grid, latest["msg"],
-                                      sensor_xy=sensor_offset_xy(
-                                          node, latest["msg"].header.frame_id))
+    try:
+        match = matcher.global_scan_match(
+            grid, msg, sensor_xy=sensor_offset_xy(node, msg.header.frame_id))
+    except Exception as e:  # noqa: BLE001
+        log.exception("[localizer] static scan matching failed")
+        return None, f"static matching failed: {e}"
     if match is None:
         return None, "the scan does not cover enough of the map to place the robot"
+    return match, ""
+
+
+def relocalize_statically(node, grid, timeout_s: float = 8.0):
+    """Return a unique pose, or explain why the scan needs another decision."""
+    match, detail = match_statically(node, grid, timeout_s)
+    if match is None:
+        return None, detail
     if match.score < STATIC_MATCH_MIN:
         return None, (f"no place on the map explains this scan ({match.detail}) — "
                       f"is the robot on this map at all?")
@@ -611,7 +622,7 @@ def current_pose(node, timeout_s: float = 5.0):
 
 def wait_for_convergence(node, timeout_s: float = 60.0,
                          min_travel_m: float = MIN_TRAVEL_M,
-                         map_dir: str = "") -> tuple[bool, tuple[float, float, float], str]:
+                         map_dir: str = "", interrupt_event=None) -> tuple[bool, tuple[float, float, float], str]:
     """Watch the filter until it agrees with itself, has moved, and matches the
     map, or give up.
 
@@ -661,6 +672,8 @@ def wait_for_convergence(node, timeout_s: float = 60.0,
         deadline = time.monotonic() + timeout_s
         best = ""
         while time.monotonic() < deadline:
+            if interrupt_event is not None and interrupt_event.is_set():
+                return False, (0.0, 0.0, 0.0), "operator supplied an initial pose"
             msg = latest["msg"]
             if msg is not None:
                 position_sd, yaw_sd = spread(msg)

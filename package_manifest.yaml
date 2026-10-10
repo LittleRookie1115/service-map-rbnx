@@ -65,6 +65,8 @@ capabilities:
   - name: robonix/service/map/lifecycle
   - name: robonix/service/map/save_map
   - name: robonix/service/map/list_maps
+  - name: robonix/service/map/get_pose_candidates
+    path: capabilities/get_pose_candidates.v1.toml
   - name: robonix/service/map/load_map
   - name: robonix/service/map/pose_estimate
   - name: robonix/service/map/switch_mode

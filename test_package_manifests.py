@@ -20,6 +20,21 @@ def capabilities(manifest: str) -> list[str]:
 
 
 class PackageManifestTests(unittest.TestCase):
+    def test_candidate_contract_is_local_and_referenced_by_every_target(self) -> None:
+        contract = ROOT / "capabilities/get_pose_candidates.v1.toml"
+        idl = ROOT / "capabilities/lib/map/srv/GetPoseCandidates.srv"
+        self.assertTrue(contract.is_file())
+        self.assertTrue(idl.is_file())
+        self.assertIn("map/srv/GetPoseCandidates.srv", contract.read_text())
+        for manifest in MANIFESTS:
+            with self.subTest(manifest=manifest):
+                text = (ROOT / manifest).read_text()
+                self.assertIn(
+                    "  - name: robonix/service/map/get_pose_candidates\n"
+                    "    path: capabilities/get_pose_candidates.v1.toml",
+                    text,
+                )
+
     def test_all_targets_declare_the_same_capabilities(self) -> None:
         expected = capabilities(MANIFESTS[0])
         self.assertTrue(expected)

@@ -210,6 +210,7 @@ docker run --rm \
     -e MAPPING_ENABLE_VIZ="$MAPPING_ENABLE_VIZ" \
     -e MAPPING_WEBUI_HOST="${MAPPING_WEBUI_HOST:-127.0.0.1}" \
     -e MAPPING_MAPS_DIR="${MAPPING_MAPS_DIR:-/mapping/maps}" \
+    -e MAPPING_STATIC_MATCH_MIN="${MAPPING_STATIC_MATCH_MIN:-0.75}" \
     "${DEPLOY_ARGS[@]}" \
     "${X11_ARGS[@]}" \
     -v "$(pwd)":/mapping \

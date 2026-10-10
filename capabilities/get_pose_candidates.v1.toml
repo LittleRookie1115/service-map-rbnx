@@ -1,0 +1,12 @@
+# Query distinct global-localization hypotheses from the current scan.
+# Only ambiguous or low-scoring matches return candidates; a conclusive
+# automatic match returns an empty list.
+[contract]
+id      = "robonix/service/map/get_pose_candidates"
+version = "1"
+kind    = "service"
+idl     = "map/srv/GetPoseCandidates.srv"
+description = "Get pose candidates when one scan cannot confirm a unique position."
+
+[mode]
+type = "rpc"
