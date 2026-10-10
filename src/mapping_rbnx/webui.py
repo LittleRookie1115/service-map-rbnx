@@ -141,7 +141,7 @@ def _track_convergence(sx: float, sy: float, stheta: float, settle_s: float = 4.
         cx, cy, cyaw = cur
         dist = math.hypot(cx - sx, cy - sy)
         dth = abs((cyaw - stheta + math.pi) % (2 * math.pi) - math.pi)
-        _log_add("pose", f"converged → ({cx:.2f}, {cy:.2f}, {math.degrees(cyaw):.0f}°)  "
+        _log_add("pose", f"pose after seed → ({cx:.2f}, {cy:.2f}, {math.degrees(cyaw):.0f}°)  "
                          f"Δ from estimate = {dist:.2f} m / {math.degrees(dth):.0f}°")
     threading.Thread(target=_check, daemon=True).start()
 
@@ -804,7 +804,8 @@ class _Handler(BaseHTTPRequestHandler):
                       "localizer": localizers.name(),
                       "localization": _localization_state(),
                       "trust": _localization_trust(),
-                      "map_id": live.get("map_id", "")}
+                      "map_id": live.get("map_id", ""),
+                      "generation": live.get("generation", 0)}
                 if g is not None:
                     st.update(width=g.info.width, height=g.info.height,
                               resolution=round(g.info.resolution, 4),
@@ -818,6 +819,8 @@ class _Handler(BaseHTTPRequestHandler):
                         st["dist_from_seed"] = round(math.hypot(cur[0] - _seed["x"],
                                                                 cur[1] - _seed["y"]), 3)
                 return self._json(st)
+            if p == "/api/pose_candidates":
+                return self._json(map_ops.get_pose_candidates_impl())
             if p == "/api/range":
                 # One request for every bound overlay: the page draws them
                 # together and a second round trip would let them drift apart

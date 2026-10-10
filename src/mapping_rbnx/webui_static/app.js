@@ -10,7 +10,13 @@ function setStatus(t) {
 // fit() pins the canvas backing-store resolution to its CSS display size,
 // so pointer coords map 1:1 — this is what kept the click coords honest.
 let STALE = true;
+let CANDIDATES = [];
+let CANDIDATE_MAP = null;
+let SELECTED_PENDING = false;
+let SELECTED_POSE = null;
+let SELECTED_AT = 0;
 let CURTRUST = null;
+let AUTO_CANDIDATES_OPENED = false;
 
 // The trust line answers "is my localization right?" from the map rather than
 // from the filter's own confidence, which is why it can disagree with the
@@ -126,7 +132,7 @@ function draw() {
     fitView();
     return;
   }
-  if (!userMoved && MI.pose) center = [MI.pose.x, MI.pose.y];
+  if (!userMoved && MI.pose && MI.localization?.state === "converged") center = [MI.pose.x, MI.pose.y];
   // occupancy underlay — map.png is already y-flipped (row0 = world max-y),
   // so place top-left at world (origin_x, origin_y+hMeters) and grow down.
   if (mapImg && MI.resolution > 0) {
@@ -168,6 +174,31 @@ function draw() {
       let p = w2p(q[0], q[1]);
       cx.fillRect(p[0] - 1.5, p[1] - 1.5, 3, 3);
     }
+  }
+  // Alternatives are shown only when the matcher cannot pick one confidently.
+  for (const candidate of CANDIDATES) {
+    const p = w2p(candidate.x, candidate.y);
+    const hue = candidate.rank === 1 ? "#ffb454" : "#9ecaff";
+    cx.save();
+    cx.translate(p[0], p[1]);
+    cx.rotate(-candidate.theta);
+    cx.fillStyle = hue;
+    cx.strokeStyle = "#10151d";
+    cx.lineWidth = 2;
+    cx.beginPath();
+    cx.moveTo(17, 0);
+    cx.lineTo(-10, -8);
+    cx.lineTo(-7, 0);
+    cx.lineTo(-10, 8);
+    cx.closePath();
+    cx.fill();
+    cx.stroke();
+    cx.restore();
+    cx.fillStyle = "#10151d";
+    cx.fillRect(p[0] + 16, p[1] - 11, 46, 17);
+    cx.fillStyle = hue;
+    cx.font = "bold 11px system-ui";
+    cx.fillText("#" + candidate.rank + " " + Math.round(candidate.score * 100) + "%", p[0] + 19, p[1] + 1);
   }
   // pose-estimate arrow being dragged. Long enough to be unambiguous is drawn
   // in amber; too short is drawn in grey with the reason, because releasing
@@ -220,7 +251,7 @@ function draw() {
     );
   }
   // live pose marker
-  if (MI.pose) {
+  if (MI.pose && MI.localization?.state === "converged") {
     let p = w2p(MI.pose.x, MI.pose.y),
       yaw = MI.pose.theta;
     cx.fillStyle = "#e63b3b";
@@ -376,6 +407,29 @@ async function poll() {
     CURLOC = s.localization || null;
     CURTRUST = s.trust || null;
     CURMAP = s.map_id || "";
+    const candidateTool = document.getElementById("tool-candidates");
+    if (candidateTool) candidateTool.hidden = s.engine !== "slam_toolbox";
+    if (!AUTO_CANDIDATES_OPENED && s.engine === "slam_toolbox" &&
+        s.mode === "localization" && s.map_id) {
+      AUTO_CANDIDATES_OPENED = true;
+      if (!paneOpen("candidatepanel")) togglePanel("candidatepanel");
+    }
+    if (CANDIDATE_MAP && (CANDIDATE_MAP.map_id !== CURMAP || CANDIDATE_MAP.generation !== s.generation)) {
+      clearCandidates("Map changed. Scan again for candidates.");
+    }
+    if (SELECTED_PENDING) {
+      const el = document.getElementById("candidate-status");
+      if (s.localization && s.localization.state === "failed") {
+        el.textContent = "The selected pose did not pass localization checks. Scan again or try another candidate.";
+        SELECTED_PENDING = false;
+      } else if (Date.now() - SELECTED_AT >= 4000 && s.pose && SELECTED_POSE &&
+                 Math.hypot(s.pose.x - SELECTED_POSE.x, s.pose.y - SELECTED_POSE.y) < 1.5 &&
+                 s.localization && s.localization.state === "converged" &&
+                 s.trust && s.trust.verdict === "ok") {
+        SELECTED_PENDING = false;
+        clearCandidates("Localization confirmed by the saved map and live laser.");
+      }
+    }
     applyMode();
     applyTrust();
     setPose(
@@ -436,13 +490,105 @@ setInterval(() => {
 // The map is the page; everything else is a panel raised over it from the
 // toolbar. Opening one refreshes it immediately rather than waiting for the
 // next poll, and closing it stops that poll.
+
+function clearCandidates(message) {
+  CANDIDATES = [];
+  CANDIDATE_MAP = null;
+  document.getElementById("candidate-list").replaceChildren();
+  document.getElementById("candidate-status").textContent = message;
+  draw();
+}
+
+async function loadCandidates() {
+  SELECTED_PENDING = false;
+  if (CURENGINE !== "slam_toolbox") {
+    clearCandidates("Pose candidates are available only with slam_toolbox.");
+    return;
+  }
+  clearCandidates("Matching the current laser scan against the saved map…");
+  try {
+    const r = await (await fetch("/api/pose_candidates")).json();
+    if (!r.ok) {
+      clearCandidates(r.detail || "Could not calculate candidates.");
+      return;
+    }
+    const s = await (await fetch("/api/state")).json();
+    if (r.map_id !== s.map_id || r.generation !== s.generation) {
+      clearCandidates("Map changed while scanning. Scan again.");
+      return;
+    }
+    if (!r.needs_selection) {
+      clearCandidates(r.detail || "Automatic match is conclusive; no choice needed.");
+      return;
+    }
+    const poses = JSON.parse(r.candidates_json || "[]");
+    if (!Array.isArray(poses) || poses.length === 0) {
+      clearCandidates("The scan did not produce selectable poses.");
+      return;
+    }
+    CANDIDATE_MAP = {map_id: r.map_id, generation: r.generation};
+    CANDIDATES = poses;
+    document.getElementById("candidate-status").textContent = r.detail;
+    const list = document.getElementById("candidate-list");
+    list.replaceChildren();
+    for (const pose of poses) {
+      const item = document.createElement("div");
+      item.className = "candidate-item";
+      const label = document.createElement("span");
+      label.textContent = `#${pose.rank} · ${Math.round(pose.score * 100)}% · (${pose.x.toFixed(2)}, ${pose.y.toFixed(2)}) · ${(pose.theta * 180 / Math.PI).toFixed(0)}°`;
+      const button = document.createElement("button");
+      button.className = "btn sm";
+      button.textContent = "Choose";
+      button.addEventListener("click", () => chooseCandidate(pose));
+      item.append(label, button);
+      list.appendChild(item);
+    }
+    draw();
+  } catch (e) {
+    clearCandidates("Candidate query failed: " + e.message);
+  }
+}
+
+async function chooseCandidate(pose) {
+  if (!CANDIDATE_MAP) return;
+  const expected = {...CANDIDATE_MAP};
+  const confirmed = await askConfirm(
+    "Use pose candidate #" + pose.rank + "?",
+    `Check that the robot is near (${pose.x.toFixed(2)}, ${pose.y.toFixed(2)}) facing ${(pose.theta * 180 / Math.PI).toFixed(0)}°. The laser must still verify this pose before localization is confirmed.`,
+    {yes: "Use initial pose"},
+  );
+  if (!confirmed) return;
+  try {
+    const state = await (await fetch("/api/state")).json();
+    if (state.map_id !== expected.map_id || state.generation !== expected.generation) {
+      clearCandidates("Map changed. Scan again before choosing a pose.");
+      return;
+    }
+    const result = await (await fetch("/api/pose_estimate", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({x: pose.x, y: pose.y, theta: pose.theta}),
+    })).json();
+    if (!result.ok) {
+      document.getElementById("candidate-status").textContent = result.detail || "Could not submit pose.";
+      return;
+    }
+    SELECTED_PENDING = true;
+    SELECTED_POSE = pose;
+    SELECTED_AT = Date.now();
+    document.getElementById("candidate-status").textContent =
+      "Initial pose submitted. Waiting for localization and live laser verification…";
+  } catch (e) {
+    document.getElementById("candidate-status").textContent = "Could not submit pose: " + e.message;
+  }
+}
+
 function togglePanel(id) {
   const dock = document.getElementById("dock");
   const pane = document.getElementById(id);
   const already = pane.classList.contains("on") && dock.classList.contains("on");
   for (const p of document.querySelectorAll(".pane")) p.classList.remove("on");
   for (const t of document.querySelectorAll(".tab")) t.classList.remove("on");
-  for (const b of ["tool-save", "tool-library", "tool-log"]) {
+  for (const b of ["tool-save", "tool-library", "tool-candidates", "tool-log"]) {
     const el = document.getElementById(b);
     if (el) el.classList.remove("active");
   }
@@ -454,8 +600,9 @@ function togglePanel(id) {
   pane.classList.add("on");
   const tab = document.getElementById("tab-" + id);
   if (tab) tab.classList.add("on");
-  const tool = { savepanel: "tool-save", libpanel: "tool-library", logpanel: "tool-log" }[id];
+  const tool = { savepanel: "tool-save", libpanel: "tool-library", candidatepanel: "tool-candidates", logpanel: "tool-log" }[id];
   if (tool) document.getElementById(tool).classList.add("active");
+  if (id == "candidatepanel") loadCandidates();
   if (id == "libpanel") loadLib();
   if (id == "logpanel") loadLog();
   if (id == "savepanel") document.getElementById("saveid").focus();
@@ -465,7 +612,7 @@ function closeDock() {
   document.getElementById("dock").classList.remove("on");
   for (const p of document.querySelectorAll(".pane")) p.classList.remove("on");
   for (const t of document.querySelectorAll(".tab")) t.classList.remove("on");
-  for (const b of ["tool-save", "tool-library", "tool-log"]) {
+  for (const b of ["tool-save", "tool-library", "tool-candidates", "tool-log"]) {
     const el = document.getElementById(b);
     if (el) el.classList.remove("active");
   }

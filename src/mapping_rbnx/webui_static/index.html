@@ -2,6 +2,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Robonix · mapping</title>
 
+<link rel="stylesheet" href="/static/vendor/bootstrap.min.css" />
 <link rel="stylesheet" href="/static/style.css" />
 
 <svg class="d-none" aria-hidden="true">
@@ -51,6 +52,9 @@
     </button>
     <button class="btn" id="tool-library" onclick="togglePanel('libpanel')" title="Saved maps">
       <svg><use href="#i-library" /></svg><span class="lbl">Maps</span>
+    </button>
+    <button class="btn" id="tool-candidates" onclick="togglePanel('candidatepanel')" title="Pose candidates when automatic localization is uncertain">
+      <svg><use href="#i-reloc" /></svg><span class="lbl">Candidates</span>
     </button>
     <button class="btn" id="tool-log" onclick="togglePanel('logpanel')" title="Activity log">
       <svg><use href="#i-log" /></svg><span class="lbl">Log</span>
@@ -117,12 +121,13 @@
   </div>
 </div>
 
-<!-- One dock, three panes. Only one pane is on screen at a time, so nothing
+<!-- One dock, four panes. Only one pane is on screen at a time, so nothing
      can cover anything else and the toolbar button says which one it is. -->
 <div id="dock">
   <div id="docktabs">
     <button class="tab" id="tab-savepanel" onclick="togglePanel('savepanel')">Save</button>
     <button class="tab" id="tab-libpanel" onclick="togglePanel('libpanel')">Maps</button>
+    <button class="tab" id="tab-candidatepanel" onclick="togglePanel('candidatepanel')">Candidates</button>
     <button class="tab" id="tab-logpanel" onclick="togglePanel('logpanel')">Log</button>
     <button class="tab" id="dockclose" onclick="closeDock()" title="Close">
       <svg style="width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 2">
@@ -144,6 +149,12 @@
 
   <div class="pane" id="libpanel">
     <div id="lib" style="display: flex; flex-direction: column; gap: 6px"></div>
+  </div>
+
+  <div class="pane" id="candidatepanel">
+    <div class="row"><b>Pose candidates</b><button class="btn sm" onclick="loadCandidates()">Scan again</button></div>
+    <div class="hint" id="candidate-status">Scan the saved map to find alternatives when automatic localization is uncertain.</div>
+    <div id="candidate-list"></div>
   </div>
 
   <div class="pane" id="logpanel">
@@ -172,4 +183,4 @@
   </div>
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=20261010-2"></script>

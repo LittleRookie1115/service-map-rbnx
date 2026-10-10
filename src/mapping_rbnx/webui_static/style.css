@@ -702,3 +702,7 @@ input:focus {
   border-color: #6b302a;
   background: rgba(64, 27, 23, 0.55);
 }
+
+#candidate-list { display: flex; flex-direction: column; gap: 6px; }
+.candidate-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; background: #12151c; border: 1px solid var(--line-soft); border-radius: var(--r); font-size: 12px; }
+.candidate-item span { min-width: 0; overflow-wrap: anywhere; }

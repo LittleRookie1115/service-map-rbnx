@@ -53,6 +53,16 @@ class WebUiApiTest(unittest.TestCase):
         self.assertTrue(out["ok"])
         save.assert_called_once_with("lab", "n")
 
+    def test_pose_candidates_forwards_to_shared_impl(self):
+        expected = {"ok": True, "detail": "ambiguous", "map_id": "lab",
+                    "generation": 3, "needs_selection": True,
+                    "candidates_json": "[]"}
+        with patch.object(webui.map_ops, "get_pose_candidates_impl",
+                          return_value=expected) as query:
+            out = self.call("/api/pose_candidates")
+        self.assertEqual(out, expected)
+        query.assert_called_once_with()
+
     def test_load_forwards_the_pose_seed(self):
         with patch.object(webui.map_ops, "load_map_impl",
                           return_value={"ok": True, "detail": "loaded"}) as load:
@@ -131,6 +141,9 @@ class StaticAssetTest(unittest.TestCase):
         self.assertIn("session id", js)          # the mode-switch explanation
         self.assertIn("MIN_POSE_DRAG_PX", js)    # the pose drag has a floor
         self.assertIn("runExclusive", js)        # map ops are single-flight
+        self.assertIn('s.engine === "slam_toolbox"', js)
+        self.assertIn('candidateTool.hidden = s.engine !== "slam_toolbox"', js)
+        self.assertIn("tool-candidates", html)
         self.assertIn("posehint", html)
         self.assertIn("/static/app.js", html)
         # Styles are served from disk, never fetched: the robot has no internet.
