@@ -78,8 +78,17 @@ service:
       localizer_particles: {min: 500, max: 2000}
 ```
 
-`pose_estimate` still seeds `/initialpose` when you do have a guess; the
-difference is that you no longer need one.
+For `slam_toolbox`, `get_pose_candidates` exposes scan-matched Top-K positions
+to Scene and other clients when the match is low-scoring or ambiguous. The
+operation rejects other engines; RTAB-Map keeps its existing `/initialpose`
+path and does not use this candidate algorithm. Already confirmed localization
+returns no candidates. A confident automatic
+match returns an empty list and requires no operator choice. The mapping Web
+UI shows ambiguous candidates as numbered arrows; choosing one submits it
+through the existing `pose_estimate` service. Check the reported `map_id` and
+`generation` against the current map before using a candidate, then wait for
+localization and live scan verification. `pose_estimate` also accepts a manual
+guess when needed.
 
 The launch branches on the provider roles bound by the deployment, so the same
 service supports 2D lidar, 3D lidar, RGB-D, and external odometry without
@@ -370,11 +379,12 @@ reads the live `/map` + pose straight off the bridge's rclpy node.
   `MAPPING_WEBUI_MAX_POINTS` (default 1200).
 
 These are the same operations exposed as runtime **RPC + MCP capabilities**
-(so Pilot can drive them too): `save_map`, `load_map`, `pose_estimate`,
-`switch_mode` (the webui adds `reset` + `delete` on top). All work on the
-running rtabmap without a redeploy — `load`/`switch_mode` call rtabmap's
-runtime services and fall back to a restart with the config's `map_mode` /
-`map_id` when those services aren't reachable.
+(so Pilot can drive them too): `save_map`, `load_map`, `get_pose_candidates`, `pose_estimate`,
+`switch_mode` (the webui adds `reset` + `delete` on top).
+`get_pose_candidates` is slam_toolbox-only; RTAB-Map rejects that query and
+keeps its existing database localization and `/initialpose` behaviour. The
+remaining operations use the selected engine's runtime implementation without
+a redeploy.
 
 > The web UI has no auth — it's a LAN debug tool. Don't expose the port to an
 > untrusted network.

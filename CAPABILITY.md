@@ -24,8 +24,15 @@ which engine runs — they only bind the `robonix/service/map/*` contracts.
 | `robonix/service/map/lifecycle` | ros2 topic | `map/msg/MapLifecycle` | `{map_id, mode, generation}`, latched (transient_local): current map identity for consumers keying state by map (scene). Re-published on init / load / reset / mode switch; `generation` bumps whenever the map origin may have changed (mapping-mode session start, reset) and is persisted per named map, so a localization round-trip keeps the same value. Bridge-owned + algo-independent. |
 | `robonix/service/map/save_map` | grpc + mcp | `map_id, note → ok, map_id, detail` | snapshot the live map under a stable id |
 | `robonix/service/map/list_maps` | grpc + mcp | `→ ok, detail, maps_json` | list saved map metadata by map id; artifacts remain opaque |
+| `robonix/service/map/get_pose_candidates` | grpc + mcp | `→ ok, detail, map_id, generation, needs_selection, candidates_json` | slam_toolbox current-scan Top-K only when no unique confident match exists |
 | `robonix/service/map/load_map` | grpc + mcp | `map_id, mode, [x,y,theta] → ok` | switch onto a saved map (localization / mapping) |
 | `robonix/service/map/pose_estimate` | grpc + mcp | `x, y, theta → ok` | seed a pose so localization re-converges |
+
+`get_pose_candidates` is defined in this package at
+`capabilities/get_pose_candidates.v1.toml` and
+`capabilities/lib/map/srv/GetPoseCandidates.srv`. All three package manifests
+reference that same local contract; `rbnx codegen` and `rbnx boot` merge it
+with the standard Robonix contracts.
 
 Every `algo` backs this **same** surface (an adapter node is spawned when an
 engine can't natively publish a contract), so `scene` / `nav` are
@@ -122,6 +129,25 @@ that matters:
 filter scatters particles over the whole free space and converges as the robot
 drives, instead of requiring an operator to supply a pose first. Cost is CPU
 only: 500-2000 particles, tens of MB, no database, no GPU.
+
+- **get_pose_candidates** `()` → `(ok, detail, map_id, generation,
+  needs_selection, candidates_json)`. Match the current laser scan against the
+  active saved occupancy grid. This operation is supported only when
+  `algo: slam_toolbox`; other engines return `ok=false` without running the
+  matcher. If initial localization is already confirmed,
+  return an empty list immediately. Otherwise, if the best match passes both the score threshold
+  (`MAPPING_STATIC_MATCH_MIN`, default 0.75) and the lead over the runner-up
+  (`MAPPING_STATIC_MATCH_MARGIN`, default 0.08), `needs_selection=false` and
+  `candidates_json="[]"`: automatic localization can use that match and there
+  is no operator choice. Otherwise `candidates_json` is a JSON array of up to
+  five `{rank, x, y, theta, score}` objects, in descending score order. Rank
+  starts at 1; x/y are metres and theta is radians in the map frame; score is
+  in [0, 1]. The query does not start or confirm localization. Scene or any
+  other client should compare `map_id` and `generation` with the current
+  `map/lifecycle` before sending a chosen pose through **pose_estimate**.
+  A successful `pose_estimate` response means the pose was received; clients
+  must wait for localization and live scan verification before treating it as
+  a confirmed location.
 
 - **pose_estimate** `(x, y, theta)` → `(ok, detail)`. Publish a pose guess
   (map frame) to `/initialpose` so rtabmap's localization re-converges — global
