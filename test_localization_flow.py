@@ -5,6 +5,7 @@ import time
 import unittest
 from types import SimpleNamespace
 from mapping_rbnx.localization_flow import LocalizationFlow
+from mapping_rbnx.map_ops import _LocalizationBackend
 
 
 def match(score=.9, runner=.5):
@@ -14,7 +15,7 @@ def match(score=.9, runner=.5):
 
 
 class Backend:
-    conclusive = staticmethod(lambda result: result.score >= .75 and result.score - result.runner_up >= .08)
+    conclusive = staticmethod(_LocalizationBackend.conclusive)
     def __init__(self, result=None):
         self.result = result or match()
         self.searches = 0
@@ -63,6 +64,11 @@ class LocalizationFlowTests(unittest.TestCase):
         self.assertEqual((backend.searches, backend.filters), (1, 0))
         self.assertEqual(backend.verified, backend.handed)
         self.assertEqual(state['candidates'], [])
+
+    def test_both_thresholds_are_required(self):
+        for result in [match(.70,.3), match(.9,.88)]:
+            self.assertFalse(Backend.conclusive(result))
+        self.assertTrue(Backend.conclusive(match(.9,.6)))
 
     def test_ambiguous_match_offers_five_and_starts_filter(self):
         flow, backend = LocalizationFlow(), Backend(match(.9,.88))
@@ -162,6 +168,35 @@ class LocalizationFlowTests(unittest.TestCase):
         flow.start(backend, 'lab', 1)
         self.wait(flow, 'ready')
         self.assertEqual(backend.handed, [backend.result.pose])
+
+
+class LocalizationPresentationTests(unittest.TestCase):
+    def test_completed_flow_ignores_old_particle_covariance(self):
+        from unittest.mock import patch
+        from mapping_rbnx import webui
+        with (
+            patch.object(webui.map_ops, 'active_algo', return_value='slam_toolbox'),
+            patch.object(webui.localizers, 'enabled', return_value=True),
+            patch.object(webui.map_ops, 'get_mode_impl', return_value={'mode':'localization'}),
+            patch.object(webui.lifecycle, 'current', return_value={'map_id':'lab','generation':1}),
+            patch.object(webui.map_ops._LOCALIZATION, 'snapshot', return_value={
+                'state':'done','phase':'ready','map_id':'lab','generation':1,'candidates':[]}),
+            patch.dict(webui._latest, {'localizer_pose':object()}),
+        ):
+            self.assertEqual(webui._localization_state()['state'], 'converged')
+
+    def test_supervisor_does_not_interrupt_an_initial_search(self):
+        from unittest.mock import patch
+        from mapping_rbnx import webui
+        with (
+            patch.object(webui.map_ops, 'active_algo', return_value='slam_toolbox'),
+            patch.object(webui.map_ops._LOCALIZATION, 'snapshot', return_value={'map_id':'lab','state':'running'}),
+            patch.object(webui.map_ops, 'relocalize_impl') as restart,
+            patch.object(webui, '_trust', {'bad_since':1.,'withdrawn':False}),
+        ):
+            webui._enforce_trust(False, 'lab', 0.)
+            webui._enforce_trust(False, 'lab', 0.)
+            restart.assert_not_called()
 
 
 if __name__ == '__main__': unittest.main()

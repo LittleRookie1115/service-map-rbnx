@@ -1,21 +1,10 @@
 # SPDX-License-Identifier: MulanPSL-2.0
-"""Localization on a saved map, with automatic global relocalization.
+"""ROS adapters for scan matching and the AMCL/Beluga fallback.
 
-The SLAM engines can localize in their own map, but only from a pose someone
-supplies: RTAB-Map's localization needs a seed close enough for scan matching to
-converge, which is the "click 2D Pose Estimate, then click again" loop. A
-particle filter over the saved occupancy grid does not: its
-`reinitialize_global_localization` service spreads particles across the free
-space and the robot converges by driving. That is what this module runs.
-
-`load_map` calls `activate()` with the saved map directory. With an initial pose
-it seeds `/initialpose`; without one it asks for global localization. Both paths
-end with the localizer owning the `map → odom` transform, so the service's
-`pose` / `odom` contracts keep publishing exactly as before (`tf_to_pose.py`
-reads the same tf chain).
-
-Cost: nav2_amcl with 500-2000 particles is a few tens of MB of RAM and a few
-percent of one core — no GPU, no database.
+LocalizationFlow owns the application state. This module starts/stops the
+particle filter, receives scans and poses, measures convergence, and provides
+static matching and laser verification. The fallback runs without publishing
+map -> odom; only the verified map engine takes over that transform.
 """
 from __future__ import annotations
 
@@ -206,23 +195,6 @@ def global_localize(node, timeout_s: float = 15.0) -> tuple[bool, str]:
 # guess. Thresholds are the point where the estimate is good enough to plan
 # with; they are deliberately loose, because the alternative to a converging
 # filter is no localization at all.
-# Relocalization runs behind an already-loaded map, so its outcome is not the
-# return value of anything the operator called; it is recorded here for the
-# status page to report.
-_RELOC: dict = {"state": "idle", "detail": ""}
-
-
-def set_relocalization(state: str, detail: str = "") -> None:
-    """Record how the running (or last) relocalization is doing."""
-    _RELOC["state"] = state
-    _RELOC["detail"] = detail
-
-
-def relocalization() -> dict:
-    """The recorded relocalization outcome: idle / running / done / failed."""
-    return dict(_RELOC)
-
-
 POSE_TOPIC = os.environ.get("MAPPING_LOCALIZER_POSE_TOPIC", "/amcl_pose")
 CONVERGED_POSITION_M = 0.25
 CONVERGED_YAW_RAD = 0.15
@@ -581,20 +553,6 @@ def match_statically(node, grid, timeout_s: float = 8.0):
     if match is None:
         return None, "the scan does not cover enough of the map to place the robot"
     return match, ""
-
-
-def relocalize_statically(node, grid, timeout_s: float = 8.0):
-    """Return a unique pose, or explain why the scan needs another decision."""
-    match, detail = match_statically(node, grid, timeout_s)
-    if match is None:
-        return None, detail
-    if match.score < STATIC_MATCH_MIN:
-        return None, (f"no place on the map explains this scan ({match.detail}) — "
-                      f"is the robot on this map at all?")
-    if match.score - match.runner_up < STATIC_MATCH_MARGIN:
-        return None, (f"two places on the map explain this scan equally well "
-                      f"({match.detail}) — move the robot a metre and try again")
-    return match.pose, f"matched the map standing still: {match.detail}"
 
 
 def current_pose(node, timeout_s: float = 5.0):
