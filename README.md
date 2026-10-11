@@ -79,7 +79,13 @@ service:
 ```
 
 For `slam_toolbox`, `get_pose_candidates` exposes scan-matched Top-K positions
-to Scene and other clients when the match is low-scoring or ambiguous. The
+from the current localization run to Scene and other clients when the match
+is low-scoring or ambiguous. Startup and Relocalize use the same controller:
+one scan search, then either a clear automatic pose or up to five cached
+candidates with AMCL/Beluga running alongside operator selection. Both paths
+verify the live laser before the map engine takes over. Candidate queries
+only read the cached result; they never repeat the global search. Relocalize
+cancels the previous run before starting a fresh search. The
 operation rejects other engines; RTAB-Map keeps its existing `/initialpose`
 path and does not use this candidate algorithm. Already confirmed localization
 returns no candidates. A confident automatic

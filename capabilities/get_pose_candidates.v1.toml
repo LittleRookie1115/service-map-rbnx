@@ -1,4 +1,4 @@
-# Query distinct global-localization hypotheses from the current scan.
+# Read cached global-localization hypotheses from the current run.
 # Only ambiguous or low-scoring matches return candidates; a conclusive
 # automatic match returns an empty list.
 [contract]
