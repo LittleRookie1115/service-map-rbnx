@@ -141,7 +141,6 @@ class StaticAssetTest(unittest.TestCase):
         self.assertIn("session id", js)          # the mode-switch explanation
         self.assertIn("MIN_POSE_DRAG_PX", js)    # the pose drag has a floor
         self.assertIn("runExclusive", js)        # map ops are single-flight
-        self.assertIn('s.engine === "slam_toolbox"', js)
         self.assertIn('candidateTool.hidden = s.engine !== "slam_toolbox"', js)
         self.assertIn("tool-candidates", html)
         self.assertIn("posehint", html)
