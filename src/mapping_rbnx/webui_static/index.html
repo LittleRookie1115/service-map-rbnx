@@ -3,7 +3,7 @@
 <title>Robonix · mapping</title>
 
 <link rel="stylesheet" href="/static/vendor/bootstrap.min.css" />
-<link rel="stylesheet" href="/static/style.css" />
+<link rel="stylesheet" href="/static/style.css?v=20261011-ux2" />
 
 <svg class="d-none" aria-hidden="true">
   <symbol id="i-save" viewBox="0 0 24 24">
@@ -79,6 +79,11 @@
        wrong pose is what makes a robot dangerous, so it gets its own line
        above the numbers rather than a chip among them. -->
   <div id="trust" class="trust"><span id="trusticon">?</span><span id="trusttext"></span></div>
+  <div id="loc-progress" hidden role="status" aria-live="polite">
+    <div class="loc-progress-heading"><span id="loc-progress-spinner" class="loc-spinner" hidden></span><b id="loc-progress-title"></b><span id="loc-progress-time"></span></div>
+    <div id="loc-progress-detail"></div>
+    <button class="btn sm" id="loc-progress-action" onclick="togglePanel('candidatepanel')" hidden>View candidates</button>
+  </div>
 
   <div class="chips">
     <div class="switch" id="modeswitch">
@@ -152,8 +157,9 @@
   </div>
 
   <div class="pane" id="candidatepanel">
-    <div class="row"><b>Pose candidates</b><button class="btn sm" onclick="loadCandidates()">Scan again</button></div>
-    <div class="hint" id="candidate-status">Scan the saved map to find alternatives when automatic localization is uncertain.</div>
+    <div class="row"><b>Pose candidates</b><button class="btn sm" id="candidate-refresh" onclick="doRelocalize()">Restart localization</button></div>
+    <div class="hint" id="candidate-status" role="status">Candidates appear automatically when the initial scan match is ambiguous.</div>
+    <div class="hint" id="candidate-filter-status"></div>
     <div id="candidate-list"></div>
   </div>
 
@@ -183,4 +189,4 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20261010-2"></script>
+<script src="/static/app.js?v=20261011-flow2"></script>

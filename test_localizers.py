@@ -478,6 +478,10 @@ class TrustEnforcementTests(unittest.TestCase):
     def setUp(self):
         from mapping_rbnx import webui, map_ops
         self.webui, self.map_ops = webui, map_ops
+        from unittest.mock import patch
+        algo = patch.object(map_ops, "active_algo", return_value="slam_toolbox")
+        algo.start()
+        self.addCleanup(algo.stop)
         self._relocalize = map_ops.relocalize_impl
         self.calls = []
         map_ops.relocalize_impl = lambda: (self.calls.append(1), {"ok": True})[1]

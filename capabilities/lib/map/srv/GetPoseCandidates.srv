@@ -1,5 +1,5 @@
-# robonix/service/map/get_pose_candidates — score the current 2D scan against
-# the active saved map. A clear automatic match needs no operator choice.
+# robonix/service/map/get_pose_candidates — read the current run's cached
+# Top-5 poses. This query never runs a search. A clear match needs no choice.
 # candidates_json is a UTF-8 JSON array of up to five objects with 1-based
 # rank, map-frame x/y in metres, theta in radians, and score in [0, 1].
 # It is [] when needs_selection is false. Check map_id and generation against
