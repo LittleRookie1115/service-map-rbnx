@@ -11,6 +11,11 @@ the sole navigation correction ``map -> odom``.
 The node is opt-in.  Legacy mapping deployments never start it and retain the
 existing RTAB-Map/odometry TF behaviour unchanged.
 
+While ICP tracking is lost RTAB-Map publishes a null odometry pose (zero
+orientation with ``BAD_COVARIANCE``).  Those samples are dropped so the last
+valid ``map -> odom`` correction keeps being broadcast during the outage
+instead of collapsing to the map origin.
+
 In split-odometry mode this node also relays the public ``/initialpose`` to
 RTAB-Map. It deliberately does not reset ICP or judge whether RTAB-Map accepted
 the rough seed: the single-odometry path does neither. The bridge only prevents
@@ -57,6 +62,14 @@ def pose_from_transform(msg: TransformStamped) -> Pose2:
         1.0 - 2.0 * (q.y * q.y + q.z * q.z),
     )
     return Pose2(float(p.x), float(p.y), yaw)
+
+
+def pose_is_null(msg: Odometry) -> bool:
+    # RTAB-Map flags a lost lock with a zero quaternion and BAD_COVARIANCE (9999).
+    q = msg.pose.pose.orientation
+    if q.x == 0.0 and q.y == 0.0 and q.z == 0.0 and q.w == 0.0:
+        return True
+    return float(msg.pose.covariance[0]) >= 9999.0
 
 
 class MapToOdomBridge(Node):
@@ -221,6 +234,14 @@ class MapToOdomBridge(Node):
 
     def _on_icp_odom(self, msg: Odometry) -> None:
         if not self._valid_frames(msg, self.icp_odom_frame, "ICP odom"):
+            return
+        if pose_is_null(msg):
+            # Composing the origin pose would teleport map->odom; keeping the
+            # last valid sample makes the stale-hold freeze the correction.
+            self._warn_once(
+                "discarding null ICP odometry sample (lost lock); holding the "
+                "last valid map->odom correction"
+            )
             return
         sample = TimedPose2(self._stamp_ns(msg), pose_from_odometry(msg))
         if (
